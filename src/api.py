@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 import os
+import time
 
 load_dotenv()
 
@@ -30,7 +31,7 @@ def cl_get(url,headers={},params=None):
     return r.json()
 
 
-def cl_paginate(page,headers={},params=None,max_pages = None):
+def cl_paginate(page,headers={},params=None,max_pages = None,sleep=0):
     url = f"{BASE.strip("/")}/{page.strip("/")}/"
     rows = []
     pages = 0
@@ -48,6 +49,9 @@ def cl_paginate(page,headers={},params=None,max_pages = None):
 
         if max_pages and pages >= max_pages:
             break
+
+        if sleep > 0:
+            time.sleep(sleep)
     
     return pd.DataFrame(rows)
 
