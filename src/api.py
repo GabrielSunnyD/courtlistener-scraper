@@ -29,3 +29,26 @@ def cl_get(url,headers={},params=None):
     r.raise_for_status()
     return r.json()
 
+
+def cl_paginate(page,headers={},params=None,max_pages = None):
+    url = f"{BASE.strip("/")}/{page.strip("/")}/"
+    rows = []
+    pages = 0
+
+    while url:
+        r = cl_get(url,headers=headers,params=params)
+
+        data = r.json()
+
+        for obj in data.get("results",[]):
+            rows.append(obj)
+        
+        url = data.get("next")
+        params = None
+
+        if max_pages and pages >= max_pages:
+            break
+    
+    return pd.DataFrame(rows)
+
+        
