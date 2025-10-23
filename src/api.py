@@ -11,12 +11,15 @@ BASE = os.getenv("BASE")
 
 def cl_get(url,headers={},params=None):
     """
-    Returns json response from get request to courtlistener.
+    Returns json response from get request. Includes API_KEY in header if available.
 
     Args:
-        page (string): The specific api to request from (ex: "people" or "opinions")
+        url (string): URL for get request.
         headers (dict): Headers to be included in the get request.
         params (dict): Parameters to be included in the get request.
+    
+    Returns:
+        The json response from courtlistener.
     """
     
     if API_KEY:
