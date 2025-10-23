@@ -44,6 +44,8 @@ def cl_paginate(page,headers={},params=None,max_pages = None):
         url = data.get("next")
         params = None
 
+        pages += 1
+
         if max_pages and pages >= max_pages:
             break
     
