@@ -9,7 +9,7 @@ API_KEY = os.getenv("API_KEY")
 BASE = os.getenv("BASE")
 
 
-def cl_get(page,headers={},params=None):
+def cl_get(url,headers={},params=None):
     """
     Returns json response from get request to courtlistener.
 
@@ -19,10 +19,10 @@ def cl_get(page,headers={},params=None):
         params (dict): Parameters to be included in the get request.
     """
     
-    url = f"{BASE.strip("/")}/{page.strip("/")}/"
     if API_KEY:
         headers["Authorization"] = f"Token {API_KEY}"
 
     r = requests.get(url,headers=headers,params=params)
     r.raise_for_status()
     return r.json()
+
