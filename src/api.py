@@ -36,9 +36,7 @@ def cl_paginate(page,headers={},params=None,max_pages = None):
     pages = 0
 
     while url:
-        r = cl_get(url,headers=headers,params=params)
-
-        data = r.json()
+        data = cl_get(url,headers=headers,params=params) 
 
         for obj in data.get("results",[]):
             rows.append(obj)
