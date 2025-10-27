@@ -3,6 +3,7 @@ import pandas as pd
 from dotenv import load_dotenv
 import os
 import time
+import random
 
 load_dotenv()
 
@@ -10,7 +11,7 @@ API_KEY = os.getenv("API_KEY")
 BASE = os.getenv("BASE")
 
 
-def cl_get(url,headers={},params=None):
+def cl_get(url, headers=None, params=None, timeout=30, retries=3, backoff=0.5):
     """
     Returns json response from get request. Includes API_KEY in header if available.
 
@@ -23,12 +24,24 @@ def cl_get(url,headers={},params=None):
         The json response from courtlistener.
     """
     
+    if headers is None:
+        headers = {}
     if API_KEY:
-        headers["Authorization"] = f"Token {API_KEY}"
+        headers = {**headers, "Authorization":f"Token {API_KEY}"}
 
-    r = requests.get(url,headers=headers,params=params)
-    r.raise_for_status()
-    return r.json()
+    attempt = 0
+    while True:
+        try:
+            r = requests.get(url,headers=headers,params=params,timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.RequestException as e:
+            attempt += 1
+            if attempt > retries:
+                raise
+            sleep_s = backoff * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+            time.sleep(sleep_s)
+            continue
 
 
 def cl_paginate(page,headers={},params=None,max_pages = None,sleep=0):
