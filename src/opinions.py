@@ -10,10 +10,10 @@ def federal_dist_jud_position_dates(person_id):
 
     url = f"{BASE.strip('/')}/people/{person_id}/"
 
-    results = cl_get(url).get("results",[])
+    results = cl_get(url)
 
-    positions = eval(results["positions"])
-
-    print(positions)
+    # Calling a url for a specific person means we don't have a "results"
+    # portion before we actually get the info we want
+    positions = results["positions"]
 
     
