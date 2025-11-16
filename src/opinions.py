@@ -48,7 +48,7 @@ def dockets_in_date_range(person_id, date_ranges):
             return "date_filed does not exist on one of this judges dockets"
 
         in_range = False
-        for date_range in date_ranges[row["id"]]:
+        for date_range in date_ranges[person_id]:
             if date_range[0]:
                 date_start = datetime.strptime(date_range[0], date_format)
             else:
