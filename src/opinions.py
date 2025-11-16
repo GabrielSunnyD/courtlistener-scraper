@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import os
 import time
 from datetime import datetime, date
+import ast
 
 load_dotenv()
 
@@ -33,6 +34,19 @@ def federal_dist_jud_position_dates(person_id,sleep=.75):
             date_ranges.append((date_start,date_termination))
 
     return date_ranges
+
+
+def get_date_ranges_for_person(date_ranges_df,person_id):
+    row = date_ranges_df.loc[date_ranges_df["person_id"] == person_id, "date_ranges"]
+    if row.empty:
+        return []  # or raise an error
+    
+    # row.iloc(0) gives the string version of the list
+    range_str = row.iloc[0]
+    
+    # Safely parse the string into a Python list
+    return ast.literal_eval(range_str)
+
 
 def dockets_in_date_range(person_id, date_ranges):
     date_format = "%Y-%m-%d"
