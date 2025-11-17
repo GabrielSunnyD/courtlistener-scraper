@@ -48,11 +48,11 @@ def get_date_ranges_for_person(date_ranges_df,person_id):
     return ast.literal_eval(range_str)
 
 
-def dockets_in_date_range(person_id, date_ranges):
+def dockets_in_date_range(person_id, date_ranges,sleep=0):
     date_format = "%Y-%m-%d"
 
     params = {"assigned_to":f"{person_id}"}
-    dockets_df = cl_paginate("dockets",params=params)
+    dockets_df = cl_paginate("dockets",params=params,sleep=sleep)
 
     date_ranges_mask = []
     for index, row in dockets_df.iterrows():
