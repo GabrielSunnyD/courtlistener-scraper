@@ -87,4 +87,38 @@ def dockets_in_date_range(person_id, date_ranges,sleep=0):
     return dockets_df[date_ranges_mask]
 
 
-    
+
+def opinion_ids_from_dockets(docket_list,sleep=0):
+
+    opinions_list = []
+    for docket_id in docket_list:
+
+        docket_url = f"{BASE.strip('/')}/dockets/{docket_id}/"
+        params = {"fields":"clusters"}
+        
+        time.sleep(sleep)
+        docket_result = cl_get(docket_url,params=params)
+
+        clusters = docket_result["clusters"]
+
+        if len(clusters) == 0:
+            continue
+
+        if len(clusters) > 1:
+            opinions_list.append("docket has multiple clusters")
+            continue
+
+        for cluster_url in clusters:
+            
+            params = {"fields":"sub_opinions"}
+
+            time.sleep(sleep)
+            cluster_result = cl_get(cluster_url,params=params)
+
+            sub_opinions = cluster_result["sub_opinions"]
+
+            if len(sub_opinions) > 1:
+                pass
+
+
+            
