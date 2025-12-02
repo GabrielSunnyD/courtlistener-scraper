@@ -90,6 +90,9 @@ def dockets_in_date_range(person_id, date_ranges,sleep=0):
 
 def opinion_ids_from_dockets(docket_list,sleep=0):
 
+    if not isinstance(docket_list, list):
+        return "docket_list is not a list"
+
     opinions_list = []
     for docket_id in docket_list:
 
@@ -117,8 +120,25 @@ def opinion_ids_from_dockets(docket_list,sleep=0):
 
             sub_opinions = cluster_result["sub_opinions"]
 
+            if len(sub_opinions) == 0:
+                continue
+
             if len(sub_opinions) > 1:
-                pass
+                opinions_list.append("cluster has multiple sub_opinions")
+                continue
+
+            for sub_opinion_url in sub_opinions:
+                
+                params = {"fields":"id"}
+
+                time.sleep(sleep)
+                sub_opinion_result = cl_get(sub_opinion_url,params=params)
+
+                opinion_id = sub_opinion_result["id"]
+                opinions_list.append(opinion_id)
+
+    return opinions_list
+    
 
 
             
