@@ -5,3 +5,4 @@ main.py
 .venv
 testing/
 test.py
+*.csv
