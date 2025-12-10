@@ -50,6 +50,3 @@ def docket_count(dockets_list: list) -> int:
     if not isinstance(dockets_list, list):
         return 0
     return len(dockets_list)
-
-
-def 
