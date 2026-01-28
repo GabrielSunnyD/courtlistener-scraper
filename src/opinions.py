@@ -47,6 +47,29 @@ def get_date_ranges_for_person(date_ranges_df,person_id):
     # Safely parse the string into a Python list
     return ast.literal_eval(range_str)
 
+def in_date_ranges(date_input, date_ranges: list) -> bool:
+    # Accept datetime OR string
+    if isinstance(date_input, str):
+        date_obj = datetime.fromisoformat(date_input).date()
+    else:
+        date_obj = date_input.date()
+
+    for start, end in date_ranges:
+        if not start:
+            raise AssertionError("judge has a date range with no start date")
+
+        start_date = datetime.strptime(start, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
+
+        if end_date:
+            if start_date <= date_obj <= end_date:
+                return True
+        else:
+            if start_date <= date_obj:
+                return True
+
+    return False
+        
 
 def dockets_in_date_range(person_id, date_ranges, fields=None, sleep=0):
     date_format = "%Y-%m-%d"
