@@ -154,3 +154,131 @@ def merge_dedup_and_shard(
         print(f"Extra-only column(s) placed last: {extra_only}")
     else:
         print("No extra-only columns detected.")
+
+import json
+from pathlib import Path
+
+
+def _to_jsonable(x):
+    """Convert common non-JSON types into JSON-serializable Python types."""
+    # Missing-ish values
+    if x is None:
+        return None
+
+    # Numpy scalars (if numpy is present in values)
+    try:
+        import numpy as np
+        if isinstance(x, np.integer):
+            return int(x)
+        if isinstance(x, np.floating):
+            return float(x)
+        if isinstance(x, np.bool_):
+            return bool(x)
+    except Exception:
+        pass
+
+    # Pandas Timestamp / NaT (if pandas is present in values)
+    try:
+        import pandas as pd
+        if isinstance(x, pd.Timestamp):
+            return x.isoformat()
+        # pd.isna covers NaN/NaT, but only call if pandas exists
+        try:
+            if pd.isna(x):
+                return None
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Datetime/date -> ISO
+    try:
+        from datetime import datetime, date
+        if isinstance(x, (datetime, date)):
+            return x.isoformat()
+    except Exception:
+        pass
+
+    # Paths -> str
+    if isinstance(x, Path):
+        return str(x)
+
+    # Recurse containers
+    if isinstance(x, (list, tuple)):
+        return [_to_jsonable(v) for v in x]
+    if isinstance(x, dict):
+        return {str(k): _to_jsonable(v) for k, v in x.items()}
+
+    return x
+
+
+def write_opinions_to_json_files(
+    opinions,
+    base_env_var="DATA",
+    subdir="opinions",
+    id_key="id",
+    person_id_key="person_id",
+    overwrite=False,
+):
+    """
+    Takes a list of dictionaries, where each dict is an Opinion object, and writes each to:
+
+        $DATA/<subdir>/<person_id>/<id>.json
+
+    Each file contains a single JSON object (the opinion dict).
+
+    Returns:
+        (written_paths, errors)
+        - written_paths: list of pathlib.Path written
+        - errors: list of (opinion_id_or_None, exception)
+    """
+    if base_env_var not in os.environ or not os.environ[base_env_var].strip():
+        raise EnvironmentError(f"Environment variable '{base_env_var}' is not set or empty.")
+
+    base_dir = Path(os.environ[base_env_var]).expanduser().resolve()
+    root = base_dir / subdir
+    root.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    errors = []
+
+    if opinions is None:
+        raise ValueError("opinions is None; expected a list of dicts.")
+
+    for i, opinion in enumerate(opinions):
+        op_id = None
+        try:
+            if not isinstance(opinion, dict):
+                raise TypeError(f"Item {i} is not a dict (got {type(opinion)}).")
+
+            if id_key not in opinion:
+                raise KeyError(f"Item {i} missing required key '{id_key}'.")
+            if person_id_key not in opinion:
+                raise KeyError(f"Item {i} missing required key '{person_id_key}'.")
+
+            op_id = opinion.get(id_key)
+            person_id = opinion.get(person_id_key)
+
+            if op_id is None or str(op_id).strip() == "":
+                raise ValueError(f"Item {i} has empty '{id_key}'.")
+            if person_id is None or str(person_id).strip() == "":
+                raise ValueError(f"Item {i} (id={op_id}) has empty '{person_id_key}'.")
+
+            person_folder = root / str(person_id)
+            person_folder.mkdir(parents=True, exist_ok=True)
+
+            out_path = person_folder / f"{op_id}.json"
+            if out_path.exists() and not overwrite:
+                continue
+
+            record = _to_jsonable(opinion)
+
+            with out_path.open("w", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
+
+            written.append(out_path)
+
+        except Exception as e:
+            errors.append((op_id, e))
+
+    return written, errors
