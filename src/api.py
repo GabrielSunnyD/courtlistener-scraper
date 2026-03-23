@@ -68,4 +68,29 @@ def cl_paginate(page,headers={},params=None,max_pages = None,sleep=0):
     
     return pd.DataFrame(rows)
 
+
+def cl_paginate_list(page,headers={},params=None,max_pages = None,sleep=0):
+    url = f"{BASE.strip("/")}/{page.strip("/")}/"
+    rows = []
+    pages = 0
+
+    while url:
+        data = cl_get(url,headers=headers,params=params) 
+
+        for obj in data.get("results",[]):
+            rows.append(obj)
+        
+        url = data.get("next")
+        params = None
+
+        pages += 1
+
+        if max_pages and pages >= max_pages:
+            break
+
+        if sleep > 0:
+            time.sleep(sleep)
+    
+    return rows
+
         
