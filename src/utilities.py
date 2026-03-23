@@ -282,3 +282,58 @@ def write_opinions_to_json_files(
             errors.append((op_id, e))
 
     return written, errors
+
+
+
+# Source - https://stackoverflow.com/a/19366686
+# Posted by Claudiu, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-03-13, License - CC BY-SA 3.0
+# Used to create natural sort key for use in iter_subdirs because filenames are strings
+import re
+
+_nsre = re.compile('([0-9]+)')
+def natural_sort_key_from_posixpath(p):
+    s = str(p)
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split(_nsre, s)]   
+
+
+
+
+def iter_subdirs(data_subdir: str, base_env_var="DATA"):
+    base = os.environ.get(base_env_var)
+
+    if not base or not base.strip():
+        raise EnvironmentError(
+            f"Environment variable '{base_env_var}' is not set or empty."
+        )
+
+    base_dir = Path(base).expanduser().resolve()
+    root = base_dir / data_subdir
+
+    if not root.exists():
+        raise FileNotFoundError(f"Directory does not exist: {root}")
+
+    for item in sorted(root.iterdir(),key=natural_sort_key_from_posixpath,reverse=True):
+        if item.is_dir():
+            yield item
+
+
+def iter_json_files(folder):
+    for file in folder.glob("*.json"):
+        yield file
+
+
+def load_json(path):
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+    
+def iter_json_data(data_subdir, base_env_var="DATA"):
+    for subdir in iter_subdirs(data_subdir, base_env_var):
+        for file in iter_json_files(subdir):
+            try:
+                data = load_json(file)
+                yield subdir.name, file, data
+            except json.JSONDecodeError as e:
+                print(f"Bad JSON in subdir: {subdir.name} file: {file}")
+                print(f"Error: {e}")
