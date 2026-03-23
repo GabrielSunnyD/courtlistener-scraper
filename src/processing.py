@@ -144,29 +144,23 @@ MONTH_PATTERN = (
     r"Nov(?:ember)?|Dec(?:ember)?)"
 )
 
-DATE_PATTERNS = [
-    # January 5, 2020 / Jan 5, 2020
+FULL_DATE_PATTERNS = [
     re.compile(rf"\b{MONTH_PATTERN}\s+\d{{1,2}},\s+\d{{4}}\b", re.IGNORECASE),
-
-    # 5 January 2020 / 5 Jan 2020
     re.compile(rf"\b\d{{1,2}}\s+{MONTH_PATTERN}\s+\d{{4}}\b", re.IGNORECASE),
-
-    # 2020-01-05
     re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
-
-    # 01/05/2020 or 1/5/2020
     re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b"),
-
-    # 01-05-2020 or 1-5-2020
     re.compile(r"\b\d{1,2}-\d{1,2}-\d{4}\b"),
 ]
 
+MONTH_YEAR_PATTERNS = [
+    re.compile(rf"\b{MONTH_PATTERN}\s+\d{{4}}\b", re.IGNORECASE),
+    re.compile(rf"\b\d{{4}}\s+{MONTH_PATTERN}\b", re.IGNORECASE),
+]
+
+YEAR_PATTERN = re.compile(r"\b(16\d{2}|17\d{2}|18\d{2}|19\d{2}|20\d{2}|21\d{2})\b")
+
 
 def parse_date_string(date_str):
-    """
-    Try to normalize a matched date string into YYYY-MM-DD.
-    If parsing fails, return the original match.
-    """
     formats = [
         "%B %d, %Y",
         "%b %d, %Y",
@@ -175,39 +169,76 @@ def parse_date_string(date_str):
         "%Y-%m-%d",
         "%m/%d/%Y",
         "%m-%d-%Y",
+        "%B %Y",
+        "%b %Y",
     ]
 
     for fmt in formats:
         try:
-            return datetime.strptime(date_str, fmt).date().isoformat()
+            dt = datetime.strptime(date_str, fmt)
+            # If only month/year was provided, default to day 1
+            if "%d" not in fmt:
+                return dt.date().replace(day=1).isoformat()
+            return dt.date().isoformat()
         except ValueError:
             continue
 
     return date_str
 
 
-def extract_first_date(text):
+def extract_header_candidate(text):
     """
-    Search the cleaned text for the first date-like string and return it.
-    Assumes the first date found is the opinion date.
+    Try to mimic the old Stata logic:
+    look for text after </p> and before </center>, if present.
     """
     if not text:
         return None
 
-    earliest_match = None
-    earliest_start = None
+    match = re.search(r"</p>\s*(.*?)\s*</center>", text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        candidate = match.group(1)
+        candidate = re.sub(r"<[^>]+>", " ", candidate)
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        return candidate
 
-    for pattern in DATE_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            if earliest_start is None or match.start() < earliest_start:
-                earliest_match = match.group(0)
-                earliest_start = match.start()
+    return None
 
-    if earliest_match is None:
+
+def extract_first_date_or_year(text):
+    """
+    Try very hard to extract something date-like:
+    1. header-targeted candidate
+    2. first full date
+    3. first month-year
+    4. first bare year
+    """
+    if not text:
         return None
 
-    return parse_date_string(earliest_match)
+    search_regions = []
+
+    header_candidate = extract_header_candidate(text)
+    if header_candidate:
+        search_regions.append(header_candidate)
+
+    search_regions.append(text)
+
+    for region in search_regions:
+        for pattern in FULL_DATE_PATTERNS:
+            m = pattern.search(region)
+            if m:
+                return parse_date_string(m.group(0))
+
+        for pattern in MONTH_YEAR_PATTERNS:
+            m = pattern.search(region)
+            if m:
+                return parse_date_string(m.group(0))
+
+        m = YEAR_PATTERN.search(region)
+        if m:
+            return m.group(0)
+
+    return None
 
 # -------------------------------------------------------------------
 # Record processing
@@ -240,7 +271,7 @@ def process_opinion_record(subdir_name, file_path, opinion):
 
     word_count = count_words(cleaned_text)
     citation_count = count_citations(opinion)
-    opinion_date = extract_first_date(cleaned_text)
+    opinion_date = extract_first_date_or_year(cleaned_text)
 
     if selected_field is None:
         logger.info("No opinion text found | person_id=%s | file=%s", person_id, file_path)
