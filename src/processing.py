@@ -35,6 +35,21 @@ TEXT_FIELD_PREFERENCE = [
     "html",
 ]
 
+DATE_STRICT_FIELD_PREFERENCE = [
+    "html_with_citations",
+    "html_columbia",
+    "html_lawbox",
+    "html_anon_2020",
+    "html",
+    "xml_harvard",
+    "xml_scan",
+]
+
+DATE_RELAXED_FIELD_PREFERENCE = [
+    *DATE_STRICT_FIELD_PREFERENCE,
+    "plain_text",
+]
+
 # -------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------
@@ -60,6 +75,17 @@ def get_preferred_text_field(opinion):
     Return (field_name, value) for the first non-empty preferred text field.
     """
     for field in TEXT_FIELD_PREFERENCE:
+        value = opinion.get(field)
+        if isinstance(value, str) and value.strip():
+            return field, value
+    return None, None
+
+
+def get_text_by_field_priority(opinion, priority_list):
+    """
+    Return (field_name, value) for the first non-empty field in priority_list.
+    """
+    for field in priority_list:
         value = opinion.get(field)
         if isinstance(value, str) and value.strip():
             return field, value
@@ -284,10 +310,31 @@ def process_opinion_record(subdir_name, file_path, opinion):
     word_count = count_words(cleaned_text)
     citation_count = count_citations(opinion)
 
-    opinion_date, date_precision, matched_date_text = extract_standardized_date(
-        text=cleaned_text,
-        raw_text=raw_text
+    # Date extraction is source-aware:
+    # 1) strict pass over HTML/XML-like fields only
+    # 2) relaxed fallback that allows plain_text
+    strict_date_field, strict_date_raw = get_text_by_field_priority(
+        opinion,
+        DATE_STRICT_FIELD_PREFERENCE,
     )
+    strict_date_text = extract_visible_text(strict_date_field, strict_date_raw)
+
+    opinion_date, date_precision, matched_date_text = extract_standardized_date(
+        text=strict_date_text,
+        raw_text=strict_date_raw,
+    )
+
+    if opinion_date is None:
+        relaxed_date_field, relaxed_date_raw = get_text_by_field_priority(
+            opinion,
+            DATE_RELAXED_FIELD_PREFERENCE,
+        )
+        relaxed_date_text = extract_visible_text(relaxed_date_field, relaxed_date_raw)
+
+        opinion_date, date_precision, matched_date_text = extract_standardized_date(
+            text=relaxed_date_text,
+            raw_text=relaxed_date_raw,
+        )
 
     return {
         "person_id": person_id,
