@@ -160,41 +160,16 @@ MONTH_YEAR_PATTERNS = [
 YEAR_PATTERN = re.compile(r"\b(16\d{2}|17\d{2}|18\d{2}|19\d{2}|20\d{2}|21\d{2})\b")
 
 
-def parse_date_string(date_str):
-    formats = [
-        "%B %d, %Y",
-        "%b %d, %Y",
-        "%d %B %Y",
-        "%d %b %Y",
-        "%Y-%m-%d",
-        "%m/%d/%Y",
-        "%m-%d-%Y",
-        "%B %Y",
-        "%b %Y",
-    ]
-
-    for fmt in formats:
-        try:
-            dt = datetime.strptime(date_str, fmt)
-            # If only month/year was provided, default to day 1
-            if "%d" not in fmt:
-                return dt.date().replace(day=1).isoformat()
-            return dt.date().isoformat()
-        except ValueError:
-            continue
-
-    return date_str
-
-
-def extract_header_candidate(text):
+def extract_header_candidate(raw_text):
     """
-    Try to mimic the old Stata logic:
-    look for text after </p> and before </center>, if present.
+    Optional header-focused extraction similar to your Stata logic.
+    This should run on raw text before markup stripping if you want
+    to capture dates sitting in header tags.
     """
-    if not text:
+    if not raw_text:
         return None
 
-    match = re.search(r"</p>\s*(.*?)\s*</center>", text, flags=re.IGNORECASE | re.DOTALL)
+    match = re.search(r"</p>\s*(.*?)\s*</center>", raw_text, flags=re.IGNORECASE | re.DOTALL)
     if match:
         candidate = match.group(1)
         candidate = re.sub(r"<[^>]+>", " ", candidate)
@@ -204,41 +179,97 @@ def extract_header_candidate(text):
     return None
 
 
-def extract_first_date_or_year(text):
+def normalize_date_string(date_str, precision):
     """
-    Try very hard to extract something date-like:
-    1. header-targeted candidate
-    2. first full date
-    3. first month-year
-    4. first bare year
+    Return standardized YYYY-MM-DD string.
+    Missing components default to 01.
     """
-    if not text:
-        return None
+    if precision == "day":
+        formats = [
+            "%B %d, %Y",
+            "%b %d, %Y",
+            "%d %B %Y",
+            "%d %b %Y",
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%m-%d-%Y",
+        ]
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt).date().isoformat()
+            except ValueError:
+                continue
+
+    elif precision == "month":
+        formats = [
+            "%B %Y",
+            "%b %Y",
+            "%Y %B",
+            "%Y %b",
+        ]
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return f"{dt.year:04d}-{dt.month:02d}-01"
+            except ValueError:
+                continue
+
+    elif precision == "year":
+        year_match = re.search(r"\b(\d{4})\b", date_str)
+        if year_match:
+            year = int(year_match.group(1))
+            return f"{year:04d}-01-01"
+
+    return None
+
+
+def extract_standardized_date(text, raw_text=None):
+    """
+    Returns:
+        (standardized_date, date_precision, matched_string)
+
+    standardized_date: YYYY-MM-DD or None
+    date_precision: 'day', 'month', 'year', or None
+    matched_string: original matched text fragment or None
+    """
+    if not text and not raw_text:
+        return None, None, None
 
     search_regions = []
 
-    header_candidate = extract_header_candidate(text)
-    if header_candidate:
-        search_regions.append(header_candidate)
+    if raw_text:
+        header_candidate = extract_header_candidate(raw_text)
+        if header_candidate:
+            search_regions.append(header_candidate)
 
-    search_regions.append(text)
+    if text:
+        search_regions.append(text)
 
     for region in search_regions:
         for pattern in FULL_DATE_PATTERNS:
-            m = pattern.search(region)
-            if m:
-                return parse_date_string(m.group(0))
+            match = pattern.search(region)
+            if match:
+                matched = match.group(0)
+                standardized = normalize_date_string(matched, "day")
+                if standardized:
+                    return standardized, "day", matched
 
         for pattern in MONTH_YEAR_PATTERNS:
-            m = pattern.search(region)
-            if m:
-                return parse_date_string(m.group(0))
+            match = pattern.search(region)
+            if match:
+                matched = match.group(0)
+                standardized = normalize_date_string(matched, "month")
+                if standardized:
+                    return standardized, "month", matched
 
-        m = YEAR_PATTERN.search(region)
-        if m:
-            return m.group(0)
+        match = YEAR_PATTERN.search(region)
+        if match:
+            matched = match.group(0)
+            standardized = normalize_date_string(matched, "year")
+            if standardized:
+                return standardized, "year", matched
 
-    return None
+    return None, None, None
 
 # -------------------------------------------------------------------
 # Record processing
@@ -247,34 +278,16 @@ def extract_first_date_or_year(text):
 def process_opinion_record(subdir_name, file_path, opinion):
     person_id = resolve_person_id(subdir_name, opinion)
 
-    opinion_person_id = opinion.get("person_id")
-    opinion_author_id = opinion.get("author_id")
-
-    if opinion_person_id is not None and str(opinion_person_id) != str(subdir_name):
-        logger.warning(
-            "Directory/person_id mismatch | dir=%s | opinion.person_id=%s | file=%s",
-            subdir_name,
-            opinion_person_id,
-            file_path,
-        )
-
-    if opinion_person_id is None and opinion_author_id is not None and str(opinion_author_id) != str(subdir_name):
-        logger.warning(
-            "Directory/author_id mismatch | dir=%s | opinion.author_id=%s | file=%s",
-            subdir_name,
-            opinion_author_id,
-            file_path,
-        )
-
     selected_field, raw_text = get_preferred_text_field(opinion)
     cleaned_text = extract_visible_text(selected_field, raw_text)
 
     word_count = count_words(cleaned_text)
     citation_count = count_citations(opinion)
-    opinion_date = extract_first_date_or_year(cleaned_text)
 
-    if selected_field is None:
-        logger.info("No opinion text found | person_id=%s | file=%s", person_id, file_path)
+    opinion_date, date_precision, matched_date_text = extract_standardized_date(
+        text=cleaned_text,
+        raw_text=raw_text
+    )
 
     return {
         "person_id": person_id,
@@ -285,6 +298,8 @@ def process_opinion_record(subdir_name, file_path, opinion):
         "word_count": word_count,
         "citation_count": citation_count,
         "opinion_date": opinion_date,
+        "date_precision": date_precision,
+        "matched_date_text": matched_date_text,
         "has_text": bool(cleaned_text),
     }
 
