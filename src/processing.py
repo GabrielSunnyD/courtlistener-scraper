@@ -297,6 +297,83 @@ def extract_standardized_date(text, raw_text=None):
 
     return None, None, None
 
+
+def extract_strict_date(opinion):
+    """
+    Strict date extraction:
+    - searches preferred HTML/XML regions only
+    - allows only full day-level date patterns
+    - supports optional header-candidate scan from raw markup
+    """
+    strict_date_field, strict_date_raw = get_text_by_field_priority(
+        opinion,
+        DATE_STRICT_FIELD_PREFERENCE,
+    )
+    strict_date_text = extract_visible_text(strict_date_field, strict_date_raw)
+
+    if not strict_date_text and not strict_date_raw:
+        return None, None, None, strict_date_field
+
+    search_regions = []
+    if strict_date_raw:
+        header_candidate = extract_header_candidate(strict_date_raw)
+        if header_candidate:
+            search_regions.append(header_candidate)
+    if strict_date_text:
+        search_regions.append(strict_date_text)
+
+    for region in search_regions:
+        for pattern in FULL_DATE_PATTERNS:
+            match = pattern.search(region)
+            if not match:
+                continue
+            matched = match.group(0)
+            standardized = normalize_date_string(matched, "day")
+            if standardized:
+                return standardized, "day", matched, strict_date_field
+
+    return None, None, None, strict_date_field
+
+
+def extract_relaxed_date(opinion):
+    """
+    Relaxed date extraction:
+    - searches broader preferred fields (includes plain_text)
+    - allows day/month/year precision patterns
+    """
+    relaxed_date_field, relaxed_date_raw = get_text_by_field_priority(
+        opinion,
+        DATE_RELAXED_FIELD_PREFERENCE,
+    )
+    relaxed_date_text = extract_visible_text(relaxed_date_field, relaxed_date_raw)
+
+    standardized, precision, matched = extract_standardized_date(
+        text=relaxed_date_text,
+        raw_text=relaxed_date_raw,
+    )
+    return standardized, precision, matched, relaxed_date_field
+
+
+def extract_dual_dates(opinion):
+    """
+    Returns:
+      - opinion_date_confident (+ metadata)
+      - opinion_date_relaxed (+ metadata)
+    """
+    confident_date, confident_precision, confident_match, confident_source = extract_strict_date(opinion)
+    relaxed_date, relaxed_precision, relaxed_match, relaxed_source = extract_relaxed_date(opinion)
+
+    return {
+        "opinion_date_confident": confident_date,
+        "opinion_date_confident_precision": confident_precision,
+        "opinion_date_confident_matched_text": confident_match,
+        "opinion_date_confident_source_field": confident_source,
+        "opinion_date_relaxed": relaxed_date,
+        "opinion_date_relaxed_precision": relaxed_precision,
+        "opinion_date_relaxed_matched_text": relaxed_match,
+        "opinion_date_relaxed_source_field": relaxed_source,
+    }
+
 # -------------------------------------------------------------------
 # Record processing
 # -------------------------------------------------------------------
@@ -310,31 +387,18 @@ def process_opinion_record(subdir_name, file_path, opinion):
     word_count = count_words(cleaned_text)
     citation_count = count_citations(opinion)
 
-    # Date extraction is source-aware:
-    # 1) strict pass over HTML/XML-like fields only
-    # 2) relaxed fallback that allows plain_text
-    strict_date_field, strict_date_raw = get_text_by_field_priority(
-        opinion,
-        DATE_STRICT_FIELD_PREFERENCE,
+    dual_dates = extract_dual_dates(opinion)
+
+    # Backward compatibility for downstream consumers still expecting legacy fields.
+    opinion_date = dual_dates["opinion_date_confident"] or dual_dates["opinion_date_relaxed"]
+    date_precision = (
+        dual_dates["opinion_date_confident_precision"]
+        or dual_dates["opinion_date_relaxed_precision"]
     )
-    strict_date_text = extract_visible_text(strict_date_field, strict_date_raw)
-
-    opinion_date, date_precision, matched_date_text = extract_standardized_date(
-        text=strict_date_text,
-        raw_text=strict_date_raw,
+    matched_date_text = (
+        dual_dates["opinion_date_confident_matched_text"]
+        or dual_dates["opinion_date_relaxed_matched_text"]
     )
-
-    if opinion_date is None:
-        relaxed_date_field, relaxed_date_raw = get_text_by_field_priority(
-            opinion,
-            DATE_RELAXED_FIELD_PREFERENCE,
-        )
-        relaxed_date_text = extract_visible_text(relaxed_date_field, relaxed_date_raw)
-
-        opinion_date, date_precision, matched_date_text = extract_standardized_date(
-            text=relaxed_date_text,
-            raw_text=relaxed_date_raw,
-        )
 
     return {
         "person_id": person_id,
@@ -344,6 +408,7 @@ def process_opinion_record(subdir_name, file_path, opinion):
         "selected_field": selected_field,
         "word_count": word_count,
         "citation_count": citation_count,
+        **dual_dates,
         "opinion_date": opinion_date,
         "date_precision": date_precision,
         "matched_date_text": matched_date_text,
