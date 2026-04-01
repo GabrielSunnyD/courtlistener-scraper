@@ -252,33 +252,34 @@ def normalize_date_string(date_str, precision):
 def extract_standardized_date(text, raw_text=None):
     """
     Returns:
-        (standardized_date, date_precision, matched_string)
+        (standardized_date, date_precision, matched_string, extraction_region)
 
     standardized_date: YYYY-MM-DD or None
     date_precision: 'day', 'month', 'year', or None
     matched_string: original matched text fragment or None
+    extraction_region: 'header_candidate', 'visible_text', 'plain_text', or None
     """
     if not text and not raw_text:
-        return None, None, None
+        return None, None, None, None
 
     search_regions = []
 
     if raw_text:
         header_candidate = extract_header_candidate(raw_text)
         if header_candidate:
-            search_regions.append(header_candidate)
+            search_regions.append(("header_candidate", header_candidate))
 
     if text:
-        search_regions.append(text)
+        search_regions.append(("visible_text", text))
 
-    for region in search_regions:
+    for region_type, region in search_regions:
         for pattern in FULL_DATE_PATTERNS:
             match = pattern.search(region)
             if match:
                 matched = match.group(0)
                 standardized = normalize_date_string(matched, "day")
                 if standardized:
-                    return standardized, "day", matched
+                    return standardized, "day", matched, region_type
 
         for pattern in MONTH_YEAR_PATTERNS:
             match = pattern.search(region)
@@ -286,16 +287,16 @@ def extract_standardized_date(text, raw_text=None):
                 matched = match.group(0)
                 standardized = normalize_date_string(matched, "month")
                 if standardized:
-                    return standardized, "month", matched
+                    return standardized, "month", matched, region_type
 
         match = YEAR_PATTERN.search(region)
         if match:
             matched = match.group(0)
             standardized = normalize_date_string(matched, "year")
             if standardized:
-                return standardized, "year", matched
+                return standardized, "year", matched, region_type
 
-    return None, None, None
+    return None, None, None, None
 
 
 def extract_strict_date(opinion):
@@ -312,17 +313,18 @@ def extract_strict_date(opinion):
     strict_date_text = extract_visible_text(strict_date_field, strict_date_raw)
 
     if not strict_date_text and not strict_date_raw:
-        return None, None, None, strict_date_field
+        return None, None, None, strict_date_field, None
 
     search_regions = []
     if strict_date_raw:
         header_candidate = extract_header_candidate(strict_date_raw)
         if header_candidate:
-            search_regions.append(header_candidate)
+            search_regions.append(("header_candidate", header_candidate))
     if strict_date_text:
-        search_regions.append(strict_date_text)
+        visible_region = "plain_text" if strict_date_field == "plain_text" else "visible_text"
+        search_regions.append((visible_region, strict_date_text))
 
-    for region in search_regions:
+    for region_type, region in search_regions:
         for pattern in FULL_DATE_PATTERNS:
             match = pattern.search(region)
             if not match:
@@ -330,9 +332,9 @@ def extract_strict_date(opinion):
             matched = match.group(0)
             standardized = normalize_date_string(matched, "day")
             if standardized:
-                return standardized, "day", matched, strict_date_field
+                return standardized, "day", matched, strict_date_field, region_type
 
-    return None, None, None, strict_date_field
+    return None, None, None, strict_date_field, None
 
 
 def extract_relaxed_date(opinion):
@@ -347,11 +349,13 @@ def extract_relaxed_date(opinion):
     )
     relaxed_date_text = extract_visible_text(relaxed_date_field, relaxed_date_raw)
 
-    standardized, precision, matched = extract_standardized_date(
+    standardized, precision, matched, extraction_region = extract_standardized_date(
         text=relaxed_date_text,
         raw_text=relaxed_date_raw,
     )
-    return standardized, precision, matched, relaxed_date_field
+    if extraction_region == "visible_text" and relaxed_date_field == "plain_text":
+        extraction_region = "plain_text"
+    return standardized, precision, matched, relaxed_date_field, extraction_region
 
 
 def extract_dual_dates(opinion):
@@ -360,18 +364,22 @@ def extract_dual_dates(opinion):
       - opinion_date_confident (+ metadata)
       - opinion_date_relaxed (+ metadata)
     """
-    confident_date, confident_precision, confident_match, confident_source = extract_strict_date(opinion)
-    relaxed_date, relaxed_precision, relaxed_match, relaxed_source = extract_relaxed_date(opinion)
+    confident_date, confident_precision, confident_match, confident_source, confident_region = extract_strict_date(opinion)
+    relaxed_date, relaxed_precision, relaxed_match, relaxed_source, relaxed_region = extract_relaxed_date(opinion)
 
     return {
         "opinion_date_confident": confident_date,
         "opinion_date_confident_precision": confident_precision,
         "opinion_date_confident_matched_text": confident_match,
         "opinion_date_confident_source_field": confident_source,
+        "opinion_date_confident_extraction_region": confident_region,
+        "opinion_date_confident_confidence_label": "confident",
         "opinion_date_relaxed": relaxed_date,
         "opinion_date_relaxed_precision": relaxed_precision,
         "opinion_date_relaxed_matched_text": relaxed_match,
         "opinion_date_relaxed_source_field": relaxed_source,
+        "opinion_date_relaxed_extraction_region": relaxed_region,
+        "opinion_date_relaxed_confidence_label": "relaxed",
     }
 
 # -------------------------------------------------------------------
@@ -399,6 +407,21 @@ def process_opinion_record(subdir_name, file_path, opinion):
         dual_dates["opinion_date_confident_matched_text"]
         or dual_dates["opinion_date_relaxed_matched_text"]
     )
+    date_source_field = (
+        dual_dates["opinion_date_confident_source_field"]
+        if dual_dates["opinion_date_confident"]
+        else dual_dates["opinion_date_relaxed_source_field"]
+    )
+    date_extraction_region = (
+        dual_dates["opinion_date_confident_extraction_region"]
+        if dual_dates["opinion_date_confident"]
+        else dual_dates["opinion_date_relaxed_extraction_region"]
+    )
+    date_confidence_label = (
+        dual_dates["opinion_date_confident_confidence_label"]
+        if dual_dates["opinion_date_confident"]
+        else dual_dates["opinion_date_relaxed_confidence_label"]
+    )
 
     return {
         "person_id": person_id,
@@ -412,6 +435,9 @@ def process_opinion_record(subdir_name, file_path, opinion):
         "opinion_date": opinion_date,
         "date_precision": date_precision,
         "matched_date_text": matched_date_text,
+        "date_source_field": date_source_field,
+        "date_extraction_region": date_extraction_region,
+        "date_confidence_label": date_confidence_label,
         "has_text": bool(cleaned_text),
     }
 
@@ -424,7 +450,15 @@ def build_opinion_records(data_subdir, base_env_var="DATA"):
     Iterate through opinion JSON files and return a list of records with:
     - word count
     - citation count
-    - inferred opinion date
+    - inferred opinion dates from two paths:
+      * opinion_date_confident: strict HTML/XML day-level extraction only.
+      * opinion_date_relaxed: broader fallback extraction supporting day/month/year.
+    - provenance metadata for each extracted date:
+      * *_source_field: originating input field (e.g., html_with_citations, plain_text)
+      * *_extraction_region: header_candidate, visible_text, or plain_text
+      * *_confidence_label: confident (strict path) or relaxed (fallback path)
+    - legacy rolled-up date fields (opinion_date/date_precision/matched_date_text)
+      with corresponding provenance (date_source_field/date_extraction_region/date_confidence_label)
     """
     records = []
 
