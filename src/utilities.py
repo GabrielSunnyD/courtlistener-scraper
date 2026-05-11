@@ -284,6 +284,97 @@ def write_opinions_to_json_files(
     return written, errors
 
 
+def stream_and_write_opinions(
+    opinions_iterable,
+    batch_size=500,
+    base_env_var="DATA",
+    subdir="opinions",
+    id_key="id",
+    person_id_key="person_id",
+    overwrite=False,
+):
+    """
+    Consume an iterable/generator of opinion dicts and write them in batches.
+
+    This lets callers pair API generators with ``write_opinions_to_json_files``
+    so opinions can be streamed to disk with bounded memory use.
+    """
+    if opinions_iterable is None:
+        raise ValueError("opinions_iterable is None; expected an iterable of dicts.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be a positive integer.")
+
+    total_written = []
+    total_errors = []
+    batch = []
+
+    for opinion in opinions_iterable:
+        batch.append(opinion)
+        if len(batch) >= batch_size:
+            written, errors = write_opinions_to_json_files(
+                batch,
+                base_env_var=base_env_var,
+                subdir=subdir,
+                id_key=id_key,
+                person_id_key=person_id_key,
+                overwrite=overwrite,
+            )
+            total_written.extend(written)
+            total_errors.extend(errors)
+            batch = []
+
+    if batch:
+        written, errors = write_opinions_to_json_files(
+            batch,
+            base_env_var=base_env_var,
+            subdir=subdir,
+            id_key=id_key,
+            person_id_key=person_id_key,
+            overwrite=overwrite,
+        )
+        total_written.extend(written)
+        total_errors.extend(errors)
+
+    return total_written, total_errors
+
+
+def fetch_and_write_opinions(
+    page="opinions",
+    headers={},
+    params=None,
+    max_pages=None,
+    sleep=0,
+    batch_size=500,
+    base_env_var="DATA",
+    subdir="opinions",
+    id_key="id",
+    person_id_key="person_id",
+    overwrite=False,
+):
+    """
+    Fetch opinions via paginated API generator and stream-write them to JSON.
+    """
+    from .api import cl_paginate_list_generator
+
+    opinions_gen = cl_paginate_list_generator(
+        page=page,
+        headers=headers,
+        params=params,
+        max_pages=max_pages,
+        sleep=sleep,
+    )
+
+    return stream_and_write_opinions(
+        opinions_iterable=opinions_gen,
+        batch_size=batch_size,
+        base_env_var=base_env_var,
+        subdir=subdir,
+        id_key=id_key,
+        person_id_key=person_id_key,
+        overwrite=overwrite,
+    )
+
+
 
 # Source - https://stackoverflow.com/a/19366686
 # Posted by Claudiu, modified by community. See post 'Timeline' for change history

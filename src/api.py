@@ -93,4 +93,31 @@ def cl_paginate_list(page,headers={},params=None,max_pages = None,sleep=0):
     
     return rows
 
+
+def cl_paginate_list_generator(page, headers={}, params=None, max_pages=None, sleep=0):
+    """
+    Yield result objects across paginated CourtListener responses one at a time.
+
+    This is a streaming variant of ``cl_paginate_list`` that avoids building the
+    full list in memory.
+    """
+    url = f"{BASE.strip('/')}/{page.strip('/')}/"
+    pages = 0
+
+    while url:
+        data = cl_get(url, headers=headers, params=params)
+
+        for obj in data.get("results", []):
+            yield obj
+
+        url = data.get("next")
+        params = None
+        pages += 1
+
+        if max_pages and pages >= max_pages:
+            break
+
+        if sleep > 0:
+            time.sleep(sleep)
+
         
